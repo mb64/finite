@@ -1,4 +1,3 @@
-
 (* Several things: *)
 (* 1. Finitary PCF type system + operational semantics *)
 (* 2. Finite domain theory *)
@@ -787,8 +786,6 @@ Module Domains.
     eauto.
   Qed.
 
-  (* TODO: do I need a more complete theory here? like fst . pair f g = f *)
-
   (* Cartesian closure *)
   Program Definition curry {A B C : poset} : Map (Map (prod A B) C) (Map A (Map B C)) :=
     fun f =>
@@ -883,8 +880,6 @@ Module Domains.
 
   Definition lift_bind'' {X A : poset} `{pointed B} (x : Map X (Lift A)) (f : Map (prod X A) B) : Map X B :=
     apply_map (lift_bind' f) x.
-
-  (* TODO: functorial action, ... ? *)
 
   (* Fixed points *)
   Function lfp_at_least {A} (f : Map A A) (min : A) (pf : min ≤ f min)
@@ -1094,14 +1089,23 @@ Module Semantics.
     end.
   Definition closed e := only_has_vars [] e.
 
-  Lemma only_has_vars_weaken x xs e : only_has_vars xs e -> only_has_vars (x::xs) e.
+  Lemma only_has_vars_weaken A B x e : only_has_vars (B++A) e -> only_has_vars (B++[x]++A) e.
   Proof.
-    assert (∀ B, only_has_vars (B++xs) e -> only_has_vars (B++[x]++xs) e).
-    { induction e; simpl; intros; repeat split_and; try set_solver.
-      + apply (IHe (_::B)); eauto.
-      + apply (IHe (_::_::B)); eauto.
-    }
-    apply (H []).
+    revert B; induction e; simpl; intros; try set_solver.
+    - apply (IHe (_::B)); eauto.
+    - apply (IHe (_::_::B)); eauto.
+  Qed.
+  Lemma only_has_vars_contract A B x e : only_has_vars (B++[x;x]++A) e -> only_has_vars (B++[x]++A) e.
+  Proof.
+    revert B; induction e; simpl; intros; try set_solver.
+    - apply (IHe (_::B)); eauto.
+    - apply (IHe (_::_::B)); eauto.
+  Qed.
+  Lemma only_has_vars_exchange A B x y e : only_has_vars (B++[x;y]++A) e -> only_has_vars (B++[y;x]++A) e.
+  Proof.
+    revert B; induction e; simpl; intros; try set_solver.
+    - apply (IHe (_::B)); eauto.
+    - apply (IHe (_::_::B)); eauto.
   Qed.
 
   Lemma typed_to_only_has_vars Γ e t : typed Γ e t -> only_has_vars (map fst Γ) e.
@@ -1138,46 +1142,6 @@ Module Semantics.
     apply subst'_id; eauto.
   Qed.
 
-  Lemma subst_equiv xs sub sub' e :
-    only_has_vars xs e -> (∀ x, x ∈ xs -> sub x = sub' x) -> subst' sub e = subst' sub' e.
-  Proof.
-    revert xs sub sub'. induction e; simpl; intros; f_equal;
-      repeat match goal with H : _ /\ _ |- _ => destruct H end; eauto.
-    - apply (IHe (x::xs)); eauto.
-      intro. set_unfold. intros []; simp_lookup.
-    - apply (IHe (x::f::xs)); eauto.
-      intro. set_unfold. intros [?|[]]; simp_lookup.
-  Qed.
-
-  (* this is the wrong lemma and I need a different one *)
-  Lemma subst_compose xs xs' s1 s2 e :
-    only_has_vars xs e ->
-    (∀ x, x ∈ xs -> only_has_vars xs' (s1 x)) ->
-    (∀ x, x ∈ xs' -> s2 x = Var x) ->
-    subst' s2 (subst' s1 e) = subst' (fun x => subst' s2 (s1 x)) e.
-  Proof.
-    revert xs xs' s1 s2. induction e; simpl; intros; f_equal;
-      repeat match goal with H : _ /\ _ |- _ => destruct H end; eauto.
-    - rewrite (IHe (x::xs) (x::xs')); eauto.
-      + apply (subst_equiv (x::xs)); eauto.
-        intro. set_unfold; intros []; simp_lookup; simpl; simp_lookup.
-        eapply subst'_only_has_vars; eauto.
-        intros.
-        case_decide; subst; symmetry; eauto.
-      + intro. set_unfold. intros []; subst; case_decide; simpl; set_unfold;
-          try contradiction; eauto using only_has_vars_weaken.
-      + intro. set_unfold. intros []; simp_lookup.
-    - rewrite (IHe (x::f::xs) (x::f::xs')); eauto.
-      + apply (subst_equiv (x::f::xs)); eauto.
-        intro. set_unfold; intros [|[]]; simp_lookup; simpl; simp_lookup.
-        eapply subst'_only_has_vars; eauto.
-        intros.
-        simp_lookup; symmetry; eauto.
-      + intro. set_unfold. intros [|[]]; simp_lookup; simpl; set_unfold;
-          eauto using only_has_vars_weaken.
-      + intro. set_unfold; intros [|[]]; simp_lookup.
-  Qed.
-
   Lemma subst'_subst x v e :
     subst x v e = subst' (fun x' => if decide (x = x') then v else x') e.
   Proof.
@@ -1194,6 +1158,72 @@ Module Semantics.
       extensionality x'.
       simp_lookup.
   Qed.
+
+  Lemma subst_closed x v e : closed e -> subst x v e = e.
+  Proof.
+    rewrite subst'_subst.
+    apply subst'_closed.
+  Qed.
+
+  Lemma subst_equiv xs sub sub' e :
+    only_has_vars xs e -> (∀ x, x ∈ xs -> sub x = sub' x) -> subst' sub e = subst' sub' e.
+  Proof.
+    revert xs sub sub'. induction e; simpl; intros; f_equal;
+      repeat match goal with H : _ /\ _ |- _ => destruct H end; eauto.
+    - apply (IHe (x::xs)); eauto.
+      intro. set_unfold. intros []; simp_lookup.
+    - apply (IHe (x::f::xs)); eauto.
+      intro. set_unfold. intros [?|[]]; simp_lookup.
+  Qed.
+
+  Lemma subst_compose xs ys x v sub e :
+    ~ x ∈ ys ->
+    only_has_vars (x::xs) e ->
+    (∀ x', x' ∈ xs -> only_has_vars ys (sub x')) ->
+    sub x = x ->
+    subst x v (subst' sub e) = subst' (fun x' => if decide (x = x') then v else sub x') e.
+  Proof.
+    (* unfold closed. *)
+    (* assert (~(x ∈ [])) by set_solver. *)
+    (* revert xs H. *)
+    (* generalize (@nil string) as ys. *)
+    revert sub ys xs.
+    induction e; simpl; intros; set_unfold.
+    - case_decide; simplify_eq; first rewrite H2; simpl; simp_lookup.
+      rewrite subst'_subst.
+      symmetry. rewrite <-(subst'_id _ Var) at 1 by reflexivity.
+      destruct H0; simplify_eq.
+      apply (subst_equiv ys); eauto.
+      intros; simp_lookup.
+    - constructor.
+    - destruct H0 as [?[]]; f_equal; eauto.
+    - destruct H0; f_equal; eauto.
+    - case_decide; subst; f_equal.
+      { f_equal; extensionality x'; simp_lookup. }
+      etransitivity.
+      + eapply (IHe _ (x0::ys) (x0::xs)).
+        * set_unfold. intros []; set_solver.
+        * apply (only_has_vars_exchange xs []); simpl; eauto.
+        * intro; set_unfold; intros []; case_decide; simplify_eq; simpl; set_unfold; eauto.
+          apply (only_has_vars_weaken ys []); simpl; eauto.
+        * case_decide; eauto.
+      + f_equal; extensionality x'; simp_lookup.
+    - case_decide; f_equal.
+      { destruct H3; f_equal; extensionality x'; simp_lookup. }
+      assert (x0 <> x) by eauto.
+      assert (f <> x) by eauto.
+      etransitivity.
+      + eapply (IHe _ (x0::f::ys) (x0::f::xs)).
+        * set_unfold; intros [|[]]; set_solver.
+        * apply (only_has_vars_exchange (f::xs) []);
+            apply (only_has_vars_exchange xs [x0]); simpl; eauto.
+        * intro; set_unfold; intros [|[]]; simp_lookup; simpl; set_unfold; eauto.
+          do 2 apply (only_has_vars_weaken _ []); simpl; eauto.
+        * simp_lookup.
+      + f_equal; extensionality x'; simp_lookup.
+  Qed.
+
+  (* Problem: the above is insufficient for subst x vx (subst y vy (subst' sub e)) *)
 
   (* typed_sub sub A B means that B |- sub : B;A is a weakening of |- sub : A *)
   Definition typed_sub (sub : string -> exp) (A B : Ctx) :=
@@ -1472,13 +1502,22 @@ Module Semantics.
     intros.
     eapply (subst_eval' [(x,t_x);(y,t_y)] [] pf ((),d_y,d_x) ()
               (fun x' => if decide (x = x') then v_x else if decide (y = x') then v_y else x')).
-    - rewrite subst'_subst.
-      rewrite subst'_subst.
-      rewrite (subst_compose [x;y] [y]) by admit.
-      { f_equal.
-        extensionality x'.
-        repeat (case_decide; simplify_eq; simpl; eauto).
-        eauto using subst'_closed, typed_to_closed. }
+    - destruct (decide (y = x)); subst.
+      + do 2 rewrite subst'_subst.
+        rewrite subst'_closed; first (f_equal; extensionality x'; simp_lookup).
+        eapply typed_to_closed.
+        apply (subst'_typed [(x,t_x)] []). { split; intros; simp_lookup. }
+        eapply typed_in_equiv_contexts; eauto.
+        intro; simp_lookup.
+      + rewrite <-(subst'_id e Var) at 1; eauto.
+        assert (only_has_vars [x;y] e).
+        { eapply (typed_to_only_has_vars [(x,t_x);(y,t_y)]); eauto. }
+        rewrite (subst_compose [y] [y]); eauto; try set_solver.
+        rewrite (subst_compose [x] []); set_unfold; eauto; simp_lookup.
+        * f_equal; extensionality x'; simp_lookup.
+        * apply (only_has_vars_exchange [] []); simpl; eauto.
+        * intros ? [|[]]. simp_lookup.
+          eapply (typed_to_only_has_vars []); eauto.
     - unfold typed_sub. split; intros; simpl in *; simplify_eq.
       simp_lookup.
     - unfold env_is_eval_subst'. intros.
@@ -1493,7 +1532,7 @@ Module Semantics.
         unshelve erewrite (lookup_var_there (Γ:=[(_,_)]) x0 x pf0); eauto.
         erewrite (lookup_var_here (Γ:=[]) x0 H2).
         symmetry; assumption.
-  Admitted.
+  Qed.
 
   Lemma eval_of_value_is_some Γ e t (pf : typed' Γ e t) (env : denot_ctx Γ) :
     is_value e -> exists d, eval pf env = Some d.
@@ -1694,11 +1733,6 @@ Module Semantics.
       eapply rtc_l; first eapply step_beta_fix; eauto.
       match goal with |- ?G => let t := type of H5 in replace G with t end; eauto.
       f_equal.
-      do 2 rewrite subst'_subst.
-      rewrite (subst_compose (x::map fst Γ) []) by admit.
-      rewrite (subst_compose (map fst Γ) []) by admit.
-      f_equal.
-      extensionality x'0.
       admit.
   Admitted.
 
