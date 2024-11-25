@@ -4,6 +4,8 @@
 (* 3. Soundness and adequacy for PCF *)
 (* 4. Extract a decision procedure *)
 
+(* Depends on propositional irrelevance (hence UIP) and funext. *)
+
 Require Import List.
 Require Import String. Open Scope string_scope.
 Require Import Coq.Logic.FunctionalExtensionality.
@@ -82,12 +84,6 @@ Section Util.
     - right; congruence.
   Defined.
 
-  Global Instance decide_and `{Decision P} `{Decision Q} : Decision (P ∧ Q).
-  Proof.
-    unfold Decision.
-    destruct (decide P), (decide Q); eauto; right; intros []; eauto.
-  Defined.
-
   Lemma list_filter_sig_lengths_le {A:Type} `{∀ x, Decision (P x)} `{∀ x, Decision (Q x)} (xs : list A) :
     (∀ x, P x -> Q x) ->
     length (list_filter_sig P xs) ≤ length (list_filter_sig Q xs).
@@ -115,6 +111,7 @@ Section Util.
       contradiction H7; eauto.
   Qed.
 
+  (* IDK why this instance isn't in stdpp; the statement doesn't depend on axioms *)
   Global Instance decide_sigT {A:Type} {P:A -> Type} :
     EqDecision A -> (forall x, EqDecision (P x)) -> EqDecision {x:A & P x}.
   Proof.
@@ -907,39 +904,20 @@ Module Domains.
     apply list_filter_sig_lengths_lt.
     - eauto using le_trans.
     - exists min. split; eauto using elem_of_enum, le_antisym.
-  Qed.
+  Defined.
   Arguments lfp_at_least {A} f min pf : rename.
-
-  Lemma lfp_at_least_is_fixpoint {A} (f : Map A A) min pf :
-    f (lfp_at_least f min pf) = lfp_at_least f min pf.
-  Proof.
-    functional induction (lfp_at_least f min pf); eauto.
-  Qed.
-
-  (* in fact, it's the least x such that f x ≤ x *)
-  Lemma lfp_at_least_is_least {A} (f : Map A A) min pf :
-    ∀ x, min ≤ x -> f x ≤ x -> lfp_at_least f min pf ≤ x.
-  Proof.
-    functional induction (lfp_at_least f min pf); eauto.
-    intros.
-    apply IHc; eauto.
-    eauto using le_trans.
-  Qed.
 
   Definition lfp `{pointed A} : Map A A -> A :=
     fun f => lfp_at_least f ⊥ (bot_le _).
 
+  (* It's a fixpoint *)
   Lemma lfp_is_fixpoint `{pointed A} (f : Map A A) :
     f (lfp f) = lfp f.
   Proof.
-    apply lfp_at_least_is_fixpoint.
-  Qed.
-
-  Lemma lfp_is_least `{pointed A} (f : Map A A) :
-    ∀ x, f x ≤ x -> lfp f ≤ x.
-  Proof.
+    unfold lfp.
+    generalize ⊥ (bot_le (f ⊥)).
     intros.
-    apply lfp_at_least_is_least; eauto.
+    functional induction (lfp_at_least f c l); eauto.
   Qed.
 
   Lemma fixpoint_induction `{pointed A} (P : A -> Prop) (f : Map A A) :
@@ -951,13 +929,23 @@ Module Domains.
     functional induction (lfp_at_least f c l); eauto.
   Qed.
 
+  (* It's the least fixpoint; in fact, it's the least x such that f x ≤ x *)
+  Lemma lfp_is_least `{pointed A} (f : Map A A) :
+    ∀ x, f x ≤ x -> lfp f ≤ x.
+  Proof.
+    intros.
+    apply fixpoint_induction; eauto.
+    intros.
+    transitivity (f x); eauto.
+  Qed.
+
+  (* It's monotone *)
   Program Definition lfp_map `{pointed A} : Map (Map A A) A := lfp.
   Next Obligation.
-    unfold lfp.
     intros ?? f f' ?.
     simpl in H0; unfold map_le in H0.
-    apply lfp_at_least_is_least; eauto.
-    rewrite <-(lfp_at_least_is_fixpoint f') at 2.
+    apply lfp_is_least; eauto.
+    rewrite <-(lfp_is_fixpoint f') at 2.
     eauto.
   Qed.
 
