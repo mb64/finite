@@ -1265,6 +1265,23 @@ Module Semantics.
     - constructor; eapply IHtyped; eauto; intros; simp_lookup.
   Qed.
 
+  Lemma subst'_of_only_has_vars xs ys sub e :
+    only_has_vars xs e ->
+    (∀ x, x ∈ xs -> only_has_vars ys (sub x)) ->
+    only_has_vars ys (subst' sub e).
+  Proof.
+    revert xs ys sub.
+    induction e; simpl; intros; eauto.
+    - destruct H as [?[]]. eauto 6.
+    - destruct H. eauto.
+    - apply (IHe (x::xs)); eauto.
+      set_unfold. intros ?[]; simp_lookup; simpl; set_unfold; eauto.
+      apply (only_has_vars_weaken _ []); simpl; eauto.
+    - apply (IHe (x::f::xs)); eauto.
+      set_unfold. intros ?[|[]]; simp_lookup; simpl; set_unfold; eauto.
+      do 2 apply (only_has_vars_weaken _ []); simpl; eauto.
+  Qed.
+
   Fixpoint cat_env {A B} (e1 : denot_ctx A) : denot_ctx B -> denot_ctx (B ++ A) :=
     match B return denot_ctx B -> denot_ctx (B ++ A) with
     | [] => fun _ => e1
@@ -1688,7 +1705,19 @@ Module Semantics.
       eexists (Lam x t1 (subst' _ body)).
       split; first constructor.
       split; first last; first (split; first constructor).
-      2: admit.
+      2: {
+        unfold closed; simpl.
+        apply (subst'_of_only_has_vars (x::map fst Γ)).
+        + eapply (typed_to_only_has_vars ((x,_)::Γ)).
+          eauto.
+        + intros.
+          simp_lookup; simpl; first set_solver.
+          assert (x0 ∈ map fst Γ) by set_solver.
+          edestruct in_vars_to_lookup; eauto.
+          unshelve edestruct (H x0) as [?[]]; eauto.
+          unfold closed in H5.
+          apply (only_has_vars_weaken [] []). apply H5.
+      }
       unfold lift_rel.
       simpl.
       intros.
@@ -1723,15 +1752,29 @@ Module Semantics.
         unshelve edestruct H as [?[]]; eauto.
     - (* fix *)
       eexists (Fix f x t1 t2 (subst' _ body)).
+      assert (closed (Fix f x t1 t2
+                        (subst' (λ x', if decide (f = x') then x'
+                                       else if decide (x = x') then x' else sub x') body))).
+      { unfold closed.
+        simpl.
+        apply (subst'_of_only_has_vars (x::f::map fst Γ)).
+        { eapply (typed_to_only_has_vars ((x,_)::(f,_)::Γ)); eauto. }
+        intros.
+        simp_lookup; simpl. 1,2: set_unfold; eauto.
+        assert (x0 ∈ map fst Γ) by (set_unfold; destruct H0 as [|[]]; try congruence; eauto).
+        edestruct in_vars_to_lookup; eauto.
+        do 2 apply (only_has_vars_weaken _ []).
+        unshelve edestruct H as [?[]]; eauto.
+      }
       split; first constructor.
-      split; first last; first (split; first constructor).
-      2: admit. (* need a lemma about subst with closed terms *)
+      split; eauto.
+      split; first constructor.
       apply fixpoint_induction.
       { simpl. intros. discriminate. }
       intros df IHfix.
       unfold lift_rel.
       intros. rename x0 into darg.
-      assert (eval pf (env, df, darg) = Some x') by (rewrite <-(curry2_apply (eval pf)); apply H3).
+      assert (eval pf (env, df, darg) = Some x') by (rewrite <-(curry2_apply (eval pf)); apply H4).
       edestruct (IHpf (fun x' =>
         if decide (x = x') then v' else
         if decide (f = x') then Fix f x t1 t2 (subst' (λ x',
@@ -1746,27 +1789,30 @@ Module Semantics.
           rewrite (lookup_var_here (Γ:=(_,_)::_) x0 pf0).
           eauto.
         + split; first constructor.
-          split; first admit.
+          split; first eauto.
           assert (t = Fun t1 t2) by simp_lookup.
           subst. simpl.
           assert (lookup ((x0,Fun t1 t2)::Γ) x0 = Some (Fun t1 t2)) by simp_lookup.
           unshelve erewrite (lookup_var_there (Γ:=(_,_)::_) x0 x pf0); eauto.
-          rewrite (lookup_var_here x0 H5).
+          rewrite (lookup_var_here x0 H6).
           eauto.
         + assert (lookup ((f,Fun t1 t2)::Γ) x0 = Some t) by simp_lookup.
           assert (lookup Γ x0 = Some t) by simp_lookup.
           unshelve edestruct (H x0 t) as [?[]]; eauto.
           split; eauto. split; eauto.
           unshelve erewrite (lookup_var_there (Γ:=(_,_)::_) x0 x pf0); eauto.
-          unshelve erewrite (lookup_var_there x0 f H6); eauto.
+          unshelve erewrite (lookup_var_there x0 f H7); eauto.
       }
       exists x0.
-      destruct H5 as [?[?[]]].
+      destruct H6 as [?[?[]]].
       repeat split; eauto.
       eapply rtc_l; first eapply step_beta_fix; eauto.
-      match goal with |- ?G => let t := type of H7 in replace G with t end; eauto.
-      f_equal.
+      match goal with |- ?G => let t := type of H8 in replace G with t end; eauto; f_equal.
       symmetry.
+      assert (only_has_vars (x::f::map fst Γ) body).
+      { eapply (typed_to_only_has_vars ((x,_)::(f,_)::_)); eauto. }
+      assert (only_has_vars (f::x::map fst Γ) body).
+      { eapply (only_has_vars_exchange _ []). eauto. }
       admit.
   Admitted.
 
