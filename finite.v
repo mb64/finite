@@ -1176,54 +1176,62 @@ Module Semantics.
       intro. set_unfold. intros [?|[]]; simp_lookup.
   Qed.
 
-  Lemma subst_compose xs ys x v sub e :
-    ~ x ∈ ys ->
-    only_has_vars (x::xs) e ->
-    (∀ x', x' ∈ xs -> only_has_vars ys (sub x')) ->
-    sub x = x ->
-    subst x v (subst' sub e) = subst' (fun x' => if decide (x = x') then v else sub x') e.
+  Lemma subst_compose' A B x v sub e :
+    sub x = Var x ->
+    only_has_vars (B ++ x :: A) e ->
+    (∀ x', x' ∈ B -> sub x' = x') ->
+    (∀ x', x' ∈ A -> ~ (x' ∈ B) -> x' <> x -> closed (sub x')) ->
+    subst x v (subst' sub e) = subst' (fun x' => subst x v (sub x')) e.
   Proof.
-    (* unfold closed. *)
-    (* assert (~(x ∈ [])) by set_solver. *)
-    (* revert xs H. *)
-    (* generalize (@nil string) as ys. *)
-    revert sub ys xs.
-    induction e; simpl; intros; set_unfold.
-    - case_decide; simplify_eq; first rewrite H2; simpl; simp_lookup.
-      rewrite subst'_subst.
-      symmetry. rewrite <-(subst'_id _ Var) at 1 by reflexivity.
-      destruct H0; simplify_eq.
-      apply (subst_equiv ys); eauto.
-      intros; simp_lookup.
-    - constructor.
-    - destruct H0 as [?[]]; f_equal; eauto.
-    - destruct H0; f_equal; eauto.
-    - case_decide; subst; f_equal.
-      { f_equal; extensionality x'; simp_lookup. }
-      etransitivity.
-      + eapply (IHe _ (x0::ys) (x0::xs)).
-        * set_unfold. intros []; set_solver.
-        * apply (only_has_vars_exchange xs []); simpl; eauto.
-        * intro; set_unfold; intros []; case_decide; simplify_eq; simpl; set_unfold; eauto.
-          apply (only_has_vars_weaken ys []); simpl; eauto.
-        * case_decide; eauto.
-      + f_equal; extensionality x'; simp_lookup.
+    revert sub B.
+    induction e; simpl; intros; eauto.
+    - destruct H0 as [?[]]. f_equal; eauto.
+    - destruct H0. f_equal; eauto.
     - case_decide; f_equal.
-      { destruct H3; f_equal; extensionality x'; simp_lookup. }
-      assert (x0 <> x) by eauto.
-      assert (f <> x) by eauto.
-      etransitivity.
-      + eapply (IHe _ (x0::f::ys) (x0::f::xs)).
-        * set_unfold; intros [|[]]; set_solver.
-        * apply (only_has_vars_exchange (f::xs) []);
-            apply (only_has_vars_exchange xs [x0]); simpl; eauto.
-        * intro; set_unfold; intros [|[]]; simp_lookup; simpl; set_unfold; eauto.
-          do 2 apply (only_has_vars_weaken _ []); simpl; eauto.
+      + subst.
+        eapply subst_equiv; eauto.
+        intro. destruct (decide (x0 ∈ (x :: B))); set_unfold.
+        * destruct e0; intros [|[|[]]]; subst; simp_lookup;
+            rewrite H1; eauto; simpl; simp_lookup.
+        * assert (x0 <> x) by eauto.
+          assert (~ (x0 ∈ B)) by eauto.
+          intros [|[|[]]]; simplify_eq; simp_lookup.
+          symmetry; apply subst_closed; eauto.
+      + rewrite (IHe _ (x0::B)).
+        * eapply subst_equiv; eauto.
+          intros. simp_lookup. simpl. simp_lookup.
         * simp_lookup.
-      + f_equal; extensionality x'; simp_lookup.
+        * eauto.
+        * intros. simp_lookup. set_solver.
+        * intros. case_decide; set_solver.
+    - case_decide; f_equal.
+      + eapply subst_equiv; eauto.
+        intros. simp_lookup.
+        assert (x1 ∈ B \/ (x1 ∈ A /\ ~ (x1 ∈ B) /\ x1 <> x)).
+        { destruct (decide (x1 ∈ B)); eauto; right; set_solver. }
+        destruct H7 as [|[?[]]].
+        * rewrite H1; eauto; simpl; destruct H3; simp_lookup.
+        * symmetry; apply subst_closed; apply H2; eauto.
+      + assert (x0 <> x) by eauto.
+        assert (f <> x) by eauto.
+        rewrite (IHe _ (x0::f::B)).
+        * eapply subst_equiv; eauto.
+          intros. simp_lookup; simpl; simp_lookup.
+        * simp_lookup.
+        * eauto.
+        * intros. simp_lookup. set_solver.
+        * intros. simp_lookup; set_solver.
   Qed.
 
-  (* Problem: the above is insufficient for subst x vx (subst y vy (subst' sub e)) *)
+  Lemma subst_compose A x v sub e :
+    sub x = Var x ->
+    only_has_vars (x :: A) e ->
+    (∀ x', x' ∈ A -> x' <> x -> closed (sub x')) ->
+    subst x v (subst' sub e) = subst' (fun x' => subst x v (sub x')) e.
+  Proof.
+    intros.
+    apply (subst_compose' A []); eauto; set_solver.
+  Qed.
 
   (* typed_sub sub A B means that B |- sub : B;A is a weakening of |- sub : A *)
   Definition typed_sub (sub : string -> exp) (A B : Ctx) :=
@@ -1235,6 +1243,11 @@ Module Semantics.
       lookup xs x = Some t \/ (lookup xs x = None /\ lookup ys x = Some t).
   Proof.
     induction xs as [|[]]; intros; eauto; simp_lookup.
+  Qed.
+
+  Lemma in_vars_to_lookup (Γ : Ctx) x : x ∈ map fst Γ -> exists t, lookup Γ x = Some t.
+  Proof.
+    induction Γ as [|[]]; simpl; set_unfold; intros []; simp_lookup.
   Qed.
 
   Lemma subst'_typed A B sub e t :
@@ -1512,12 +1525,15 @@ Module Semantics.
       + rewrite <-(subst'_id e Var) at 1; eauto.
         assert (only_has_vars [x;y] e).
         { eapply (typed_to_only_has_vars [(x,t_x);(y,t_y)]); eauto. }
-        rewrite (subst_compose [y] [y]); eauto; try set_solver.
-        rewrite (subst_compose [x] []); set_unfold; eauto; simp_lookup.
-        * f_equal; extensionality x'; simp_lookup.
-        * apply (only_has_vars_exchange [] []); simpl; eauto.
+        assert (only_has_vars [y;x] e).
+        { apply (only_has_vars_exchange [] []); simpl; eauto. }
+        rewrite (subst_compose' [] [y]); eauto; try set_solver.
+        rewrite (subst_compose [x] y); set_unfold; simpl; eauto; simp_lookup.
+        * f_equal; extensionality x'; simp_lookup; simpl; simp_lookup.
+          apply subst_closed.
+          eauto using typed_to_closed.
         * intros ? [|[]]. simp_lookup.
-          eapply (typed_to_only_has_vars []); eauto.
+          eauto using typed_to_closed.
     - unfold typed_sub. split; intros; simpl in *; simplify_eq.
       simp_lookup.
     - unfold env_is_eval_subst'. intros.
@@ -1615,19 +1631,19 @@ Module Semantics.
   (* The first seems quite hard in this setting, so I will do the second. *)
 
   Definition lift_rel {t} (R : exp -> denot t -> Prop) (e : exp) (x : Lift (denot t)) : Prop :=
-    forall x', x = Some x' -> exists v, is_value v /\ rtc step e v /\ R v x'.
+    forall x', x = Some x' -> exists v, is_value v /\ closed v /\ rtc step e v /\ R v x'.
 
   Fixpoint R_V {t} v : denot t -> Prop :=
     match t return denot t -> Prop with
     | Bool => fun x => v = Const x
     | Fun a b => fun f =>
-        forall v' x, is_value v' -> R_V (t:=a) v' x -> lift_rel (R_V (t:=b)) (App v v') (`f x)
+        forall v' x, is_value v' -> closed v' -> R_V (t:=a) v' x -> lift_rel (R_V (t:=b)) (App v v') (`f x)
     end.
   Definition R_E {t} := lift_rel (t:=t) R_V.
 
   Definition R_env {Γ} sub (env : denot_ctx Γ) :=
     ∀ x t (pf : lookup Γ x = Some t),
-      is_value (sub x) /\ R_V (sub x) (lookup_var x pf env).
+      is_value (sub x) /\ closed (sub x) /\ R_V (sub x) (lookup_var x pf env).
 
   Theorem FTLR {Γ e t} (pf : typed' Γ e t) :
     forall sub env, R_env sub env -> R_E (subst' sub e) (eval pf env).
@@ -1636,21 +1652,21 @@ Module Semantics.
     induction pf; simpl; intros; simplify_eq.
     - (* var *)
       exists (sub x).
-      destruct (H x ty0 e).
+      destruct (H x ty0 e) as [?[]].
       eauto using rtc_refl.
     - (* const *)
-      exists x'. simpl; eauto using rtc_refl.
+      exists x'. unfold closed; simpl; eauto using rtc_refl.
     - (* if *)
       case_match; simplify_eq.
-      edestruct IHpf1 as [vb [?[]]]; eauto.
-      simpl in H4.
+      edestruct IHpf1 as [vb [?[?[]]]]; eauto.
+      simpl in H5.
       case_match; simplify_eq.
-      + edestruct IHpf2 as [v [?[]]]; eauto.
+      + edestruct IHpf2 as [v [?[?[]]]]; eauto.
         exists v.
         repeat split; eauto.
         transitivity (If true (subst' sub e2) (subst' sub e3));
           eauto using step_if_1', rtc_l, step.
-      + edestruct IHpf3 as [v [?[]]]; eauto.
+      + edestruct IHpf3 as [v [?[?[]]]]; eauto.
         exists v.
         repeat split; eauto.
         transitivity (If false (subst' sub e2) (subst' sub e3));
@@ -1660,10 +1676,10 @@ Module Semantics.
       case_match; simplify_eq.
       rename c into d_f.
       rename c0 into d_arg.
-      edestruct IHpf1 as [v_f [?[]]]; eauto.
-      edestruct IHpf2 as [v_arg [?[]]]; eauto.
+      edestruct IHpf1 as [v_f [?[?[]]]]; eauto.
+      edestruct IHpf2 as [v_arg [?[?[]]]]; eauto.
       clear IHpf1 IHpf2.
-      unshelve edestruct H5 as [v [?[]]]; eauto.
+      unshelve edestruct H6 as [v [?[?[]]]]; eauto.
       exists v.
       repeat split; eauto.
       transitivity (App v_f (subst' sub e2)); eauto using step_app_1'.
@@ -1671,11 +1687,12 @@ Module Semantics.
     - (* lam *)
       eexists (Lam x t1 (subst' _ body)).
       split; first constructor.
-      split; first constructor.
+      split; first last; first (split; first constructor).
+      2: admit.
       unfold lift_rel.
       simpl.
       intros.
-      edestruct (IHpf (fun x' => if decide (x = x') then v' else sub x')) as [v[?[]]]; eauto.
+      edestruct (IHpf (fun x' => if decide (x = x') then v' else sub x')) as [v[?[?[]]]]; eauto.
       { intros.
         simp_lookup.
         + split; eauto.
@@ -1689,17 +1706,32 @@ Module Semantics.
       replace (subst x v' (subst' (fun x' => if decide (x = x') then x' else sub x') body))
                 with (subst' (fun x' => if decide (x = x') then v' else sub x') body).
       { eauto. }
-      admit. (* substitution lemma *)
+      rewrite (subst_compose (map fst Γ)); simp_lookup.
+      + apply (subst_equiv (x::map fst Γ)).
+        { eapply (typed_to_only_has_vars ((x,_)::Γ)); eauto. }
+        intros; simp_lookup; simpl; simp_lookup.
+        set_unfold; destruct H8 as [|[?[]]]; simplify_eq.
+        symmetry; apply subst_closed.
+        assert (∃ t, lookup Γ x2.1 = Some t).
+        { apply in_vars_to_lookup. set_solver. }
+        destruct H8.
+        unshelve edestruct (H x2.1) as [?[]]; first shelve; eauto.
+      + eapply (typed_to_only_has_vars ((x,_)::Γ)); eauto.
+      + intros.
+        edestruct in_vars_to_lookup; eauto.
+        case_decide; first congruence.
+        unshelve edestruct H as [?[]]; eauto.
     - (* fix *)
       eexists (Fix f x t1 t2 (subst' _ body)).
       split; first constructor.
-      split; first constructor.
+      split; first last; first (split; first constructor).
+      2: admit. (* need a lemma about subst with closed terms *)
       apply fixpoint_induction.
       { simpl. intros. discriminate. }
       intros df IHfix.
       unfold lift_rel.
       intros. rename x0 into darg.
-      assert (eval pf (env, df, darg) = Some x') by admit.
+      assert (eval pf (env, df, darg) = Some x') by (rewrite <-(curry2_apply (eval pf)); apply H3).
       edestruct (IHpf (fun x' =>
         if decide (x = x') then v' else
         if decide (f = x') then Fix f x t1 t2 (subst' (λ x',
@@ -1714,25 +1746,27 @@ Module Semantics.
           rewrite (lookup_var_here (Γ:=(_,_)::_) x0 pf0).
           eauto.
         + split; first constructor.
+          split; first admit.
           assert (t = Fun t1 t2) by simp_lookup.
           subst. simpl.
           assert (lookup ((x0,Fun t1 t2)::Γ) x0 = Some (Fun t1 t2)) by simp_lookup.
           unshelve erewrite (lookup_var_there (Γ:=(_,_)::_) x0 x pf0); eauto.
-          rewrite (lookup_var_here x0 H4).
+          rewrite (lookup_var_here x0 H5).
           eauto.
         + assert (lookup ((f,Fun t1 t2)::Γ) x0 = Some t) by simp_lookup.
           assert (lookup Γ x0 = Some t) by simp_lookup.
-          unshelve edestruct (H x0 t); eauto.
-          split; eauto.
+          unshelve edestruct (H x0 t) as [?[]]; eauto.
+          split; eauto. split; eauto.
           unshelve erewrite (lookup_var_there (Γ:=(_,_)::_) x0 x pf0); eauto.
-          unshelve erewrite (lookup_var_there x0 f H5); eauto.
+          unshelve erewrite (lookup_var_there x0 f H6); eauto.
       }
       exists x0.
-      destruct H4 as [?[]].
+      destruct H5 as [?[?[]]].
       repeat split; eauto.
       eapply rtc_l; first eapply step_beta_fix; eauto.
-      match goal with |- ?G => let t := type of H5 in replace G with t end; eauto.
+      match goal with |- ?G => let t := type of H7 in replace G with t end; eauto.
       f_equal.
+      symmetry.
       admit.
   Admitted.
 
@@ -1746,9 +1780,9 @@ Module Semantics.
       unshelve edestruct eval_of_value_is_some; eauto. { constructor. }
       erewrite soundness; eauto.
     - intros [d].
-      edestruct (FTLR pf (fun x => x) ()) as [v[?[]]]; eauto.
+      edestruct (FTLR pf (fun x => x) ()) as [v[?[?[]]]]; eauto.
       { intros ???. simp_lookup. }
-      rewrite subst'_id in H1; eauto.
+      rewrite subst'_id in H2; eauto.
   Qed.
 
   (* And as a further corollary, ≤ soundly underapproximates contextual refinement *)
