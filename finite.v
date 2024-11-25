@@ -16,15 +16,13 @@ Require Import FunInd.
 Require Import Recdef.
 Import EqNotations.
 Import ListNotations.
-(* Require Import Coq.Logic.PropExtensionality. *)
-
 
 From stdpp Require Import gmap finite vector.
 
 Section Util.
   Lemma unit_unique (x y : unit) : x = y.
-    destruct x, y.
-    reflexivity.
+  Proof.
+    destruct x, y. reflexivity.
   Qed.
 
   Global Instance prop_irrel (P : Prop) : ProofIrrel P.
@@ -443,6 +441,21 @@ Section Lang.
       inv H; eauto.
   Defined.
 
+  Definition is_typed_to_sig_typed' {Γ e} :
+    (exists t, typed Γ e t) -> { t : ty & typed' Γ e t }.
+  Proof.
+    intro.
+    destruct (type_of Γ e) eqn:Heq.
+    - refine (existT t _).
+      apply typed_to_typed'.
+      apply typed_to_type_of.
+      assumption.
+    - exfalso.
+      destruct H.
+      apply typed_to_type_of in H.
+      congruence.
+  Defined.
+
   Theorem typed'_to_typed {Γ e t} : typed' Γ e t -> typed Γ e t.
   Proof.
     revert Γ t. induction 1; intros; eauto using typed.
@@ -507,6 +520,7 @@ Module Domains.
   Qed.
   Hint Resolve le_bot_eq_bot : core.
 
+  #[local]
   Obligation Tactic := (simpl; eauto).
 
   (* Maps *)
@@ -1360,7 +1374,6 @@ Module Semantics.
       eval pf (cat_env env env') = eval pf' env'.
   Proof.
     intros.
-    About eval_extend.
     apply (eval_extend A B e t (B++A) eq_refl).
   Qed.
 
@@ -1647,6 +1660,11 @@ Module Semantics.
   (*  2. Write it as a top-level predicate. *)
   (* The first seems quite hard in this setting, so I will do the second. *)
 
+  (* In theory I just need the result to be a syntactic value satisfying R. *)
+  (* But it's convenient for substitution lemmas to talk about _closed_ values. *)
+  (* I could go all the way and talked about closed _typed_ values, i.e. typed [] v t, *)
+  (* but it's not any more convenient than just closed. *)
+  (* (Of course typed [] v t would work too, we have syntactic type soundness.) *)
   Definition lift_rel {t} (R : exp -> denot t -> Prop) (e : exp) (x : Lift (denot t)) : Prop :=
     forall x', x = Some x' -> exists v, is_value v /\ closed v /\ rtc step e v /\ R v x'.
 
@@ -1831,7 +1849,6 @@ Module Semantics.
             edestruct in_vars_to_lookup; eauto.
             unshelve edestruct H as [?[]]; eauto.
         + rewrite subst'_subst.
-          About subst'_of_only_has_vars.
           apply (subst'_of_only_has_vars [x]).
           * eapply subst'_of_only_has_vars; eauto.
             intros.
@@ -1892,18 +1909,21 @@ End Semantics.
 
 Import Semantics.
 
-Definition terminates {t} (e : exp) (pf : typed [] e t) :=
-  match Domains.proj_map (eval (typed_to_typed' pf)) () with
+Definition terminates (e : exp) (pf : exists t, typed [] e t) : bool :=
+  let 'existT t pf := is_typed_to_sig_typed' pf in
+  match Domains.proj_map (eval pf) () with
   | Some _ => true
   | None => false
   end.
 
 Theorem terminates_correct :
-  ∀ e t pf, terminates (t:=t) e pf <-> ∃ v, is_value v /\ rtc step e v.
+  ∀ e pf, terminates e pf <-> ∃ v, is_value v /\ rtc step e v.
 Proof.
   intros.
-  rewrite (@adequacy e t).
-  unfold terminates. split.
+  unfold terminates.
+  case_match.
+  rewrite (@adequacy e x).
+  split.
   - intro. case_match; [eauto|contradiction].
   - intros [? ->]; constructor.
 Qed.
