@@ -1544,7 +1544,7 @@ Module Semantics.
         { eapply (typed_to_only_has_vars [(x,t_x);(y,t_y)]); eauto. }
         assert (only_has_vars [y;x] e).
         { apply (only_has_vars_exchange [] []); simpl; eauto. }
-        rewrite (subst_compose' [] [y]); eauto; try set_solver.
+        rewrite (subst_compose' [] [y] x); eauto; try set_solver.
         rewrite (subst_compose [x] y); set_unfold; simpl; eauto; simp_lookup.
         * f_equal; extensionality x'; simp_lookup; simpl; simp_lookup.
           apply subst_closed.
@@ -1808,13 +1808,68 @@ Module Semantics.
       repeat split; eauto.
       eapply rtc_l; first eapply step_beta_fix; eauto.
       match goal with |- ?G => let t := type of H8 in replace G with t end; eauto; f_equal.
-      symmetry.
       assert (only_has_vars (x::f::map fst Γ) body).
       { eapply (typed_to_only_has_vars ((x,_)::(f,_)::_)); eauto. }
+      destruct (decide (f = x)).
+      { subst.
+        assert (only_has_vars (x::map fst Γ) body).
+        { eapply (only_has_vars_contract _ []); eauto. }
+        rewrite subst_closed.
+        + rewrite (subst_compose (map fst Γ) x).
+          * eapply subst_equiv; eauto.
+            intros.
+            destruct (decide (x = x1)); subst; simpl;
+              first case_decide; eauto; try congruence.
+            rewrite subst_closed; eauto.
+            assert (x1 ∈ map fst Γ) by (set_unfold; destruct H12; try congruence; eauto).
+            edestruct in_vars_to_lookup; eauto.
+            unshelve edestruct H as [?[]]; eauto.
+          * destruct (decide (x = x)); congruence.
+          * eauto.
+          * intros.
+            destruct (decide (x = x'0)); first congruence.
+            edestruct in_vars_to_lookup; eauto.
+            unshelve edestruct H as [?[]]; eauto.
+        + rewrite subst'_subst.
+          About subst'_of_only_has_vars.
+          apply (subst'_of_only_has_vars [x]).
+          * eapply subst'_of_only_has_vars; eauto.
+            intros.
+            case_decide; simpl; first (set_unfold; eauto).
+            apply (only_has_vars_weaken _ []).
+            assert (x1 ∈ map fst Γ) by (set_unfold; destruct H12; try congruence; eauto).
+            edestruct in_vars_to_lookup; eauto.
+            unshelve edestruct H as [?[]]; eauto.
+          * set_unfold; intros ?[|[]]. case_decide; try congruence; eauto.
+      }
       assert (only_has_vars (f::x::map fst Γ) body).
       { eapply (only_has_vars_exchange _ []). eauto. }
-      admit.
-  Admitted.
+      rewrite (subst_compose' (map fst Γ) [f] x).
+      + rewrite (subst_compose (x::map fst Γ) f).
+        * eapply subst_equiv; eauto.
+          intros.
+          repeat (simp_lookup; simpl); repeat (rewrite subst_closed; eauto);
+            assert (x1 ∈ map fst Γ) by (set_unfold; destruct H12 as [|[]]; try congruence; eauto);
+            edestruct in_vars_to_lookup; eauto;
+            unshelve edestruct H as [?[]]; eauto.
+        * simp_lookup; simpl; simp_lookup.
+        * eauto.
+        * intros. simp_lookup; simpl; simp_lookup.
+          assert (x'0 ∈ map fst Γ) by (set_unfold; destruct H12 as []; try congruence; eauto).
+          edestruct in_vars_to_lookup; eauto.
+          repeat (rewrite subst_closed; eauto);
+            unshelve edestruct H as [?[]]; eauto.
+      + simp_lookup.
+      + eauto.
+      + set_unfold; intros ?[|[]]; subst.
+        simp_lookup.
+      + intros.
+        assert (x'0 <> f) by (intro; contradiction H13; set_unfold; eauto).
+        simp_lookup.
+        assert (x'0 ∈ map fst Γ) by (set_unfold; destruct H12 as []; try congruence; eauto).
+        edestruct in_vars_to_lookup; eauto.
+        unshelve edestruct H as [?[]]; eauto.
+  Qed.
 
   (* Up next: adequacy *)
   Corollary adequacy {e t} (pf : typed' [] e t) :
@@ -1832,3 +1887,25 @@ Module Semantics.
   Qed.
 
   (* And as a further corollary, ≤ soundly underapproximates contextual refinement *)
+
+End Semantics.
+
+Import Semantics.
+
+Definition terminates {t} (e : exp) (pf : typed [] e t) :=
+  match Domains.proj_map (eval (typed_to_typed' pf)) () with
+  | Some _ => true
+  | None => false
+  end.
+
+Theorem terminates_correct :
+  ∀ e t pf, terminates (t:=t) e pf <-> ∃ v, is_value v /\ rtc step e v.
+Proof.
+  intros.
+  rewrite (@adequacy e t).
+  unfold terminates. split.
+  - intro. case_match; [eauto|contradiction].
+  - intros [? ->]; constructor.
+Qed.
+
+Extraction terminates.
